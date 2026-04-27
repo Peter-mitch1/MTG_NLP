@@ -1,6 +1,5 @@
 from bs4 import BeautifulSoup as bs
 import requests
-import re
 import sys
 
 
@@ -61,33 +60,31 @@ def scrape_words_for_ner(url):
         print("Could not find the main content container.")
         return []
 
-    text_elements = main_content.find_all(['p'])
+    text_elements = main_content.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
     links = [element.find_all(['a']) for element in text_elements]
     
     full_text = []
     for text_element in text_elements:
         text_element_text = []
         for child in text_element.contents:
-            if child.name == 'a':
-                # print(f"Link text: {child.get_text(strip=True)}")
+            if child.name == 'a' or child.name in ['b', 'i', 'strong', 'em', 'span']:  # handle common inline elements that may contain text
                 text_element_text.append(child.get_text(strip=True))
             elif isinstance(child, str):
                 clean_text = child.strip()
                 if clean_text:
-                    # print(f"Text: {clean_text}")
                     text_element_text.append(clean_text)
-        # print(f"Parsed text from element: {text_element_text}")
         joined_text = join_text_elements(text_element_text)
-        # print(f"\nJoined text: {joined_text}")
         full_text.append(joined_text)
-        # print("\n--- END OF TEXT ELEMENT ---\n\n")
 
-    return "\n\n".join(full_text)
+    full_text = "\n\n".join(full_text)
+    full_text = full_text.replace('|', ' ')  # Remove pipe characters that are used in some articles to separate sections, as they can interfere with NER processing
+
+    return full_text
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python article_scraper_and_tokenizer.py <URL>")
+        print("Usage: python article_scraper.py <URL>")
         sys.exit(1)
 
     url = sys.argv[1]
