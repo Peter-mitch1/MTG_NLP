@@ -3,7 +3,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
 from transformers import BertTokenizerFast, BertModel, get_linear_schedule_with_warmup
-from typing import List, Dict, Tuple, Optional
+from seqeval.metrics import f1_score
+from typing import List, Dict, Tuple
 
 
 TRAIN_PATH  = "en_ewt-ud-train.iob2"
@@ -54,6 +55,7 @@ def parse_iob2(path: str) -> Tuple[List, List, List, List]:
 def build_label_vocab(labels_list: List[List[str]]) -> Tuple[Dict, Dict]:
     unique = sorted({lbl for sent in labels_list for lbl in sent if lbl != "O"})
     label_list = ["O"] + unique
+    print("Label list: ", label_list)
     label2id = {lbl: idx for idx, lbl in enumerate(label_list)}
     id2label  = {idx: lbl for lbl, idx in label2id.items()}
     return label2id, id2label
@@ -183,7 +185,7 @@ def main():
         num_training_steps=len(train_loader) * EPOCHS,
     )
 
-    best_val_loss = float("inf")
+    best_f1 = 0.0
     for epoch in range(1, EPOCHS + 1):
         model.train()
         total_loss = 0.0
@@ -208,27 +210,40 @@ def main():
 
         model.eval()
         val_loss = 0.0
+        all_preds, all_golds = [], []
         with torch.no_grad():
             for batch in dev_loader:
                 output = model(
                     input_ids=batch["input_ids"].to(device),
                     attention_mask=batch["attention_mask"].to(device),
                     token_type_ids=batch.get("token_type_ids",
-                                   torch.zeros_like(batch["input_ids"])).to(device),
+                                             torch.zeros_like(batch["input_ids"])).to(device),
                     labels=batch["labels"].to(device),
                 )
                 val_loss += output["loss"].item()
+                preds = torch.argmax(output["logits"], dim=-1)
+                for pred_seq, label_seq in zip(preds.cpu().numpy(),
+                                               batch["labels"].numpy()):
+                    pred_tags, gold_tags = [], []
+                    for p, g in zip(pred_seq, label_seq):
+                        if g == -100:
+                            continue
+                        pred_tags.append(id2label[p])
+                        gold_tags.append(id2label[g])
+                    all_preds.append(pred_tags)
+                    all_golds.append(gold_tags)
         val_loss /= len(dev_loader)
+        val_f1 = f1_score(all_golds, all_preds)
 
-        improved = val_loss < best_val_loss
+        improved = val_f1 > best_f1
         if improved:
-            best_val_loss = val_loss
+            best_f1 = val_f1
             torch.save({"model_state_dict": model.state_dict(),
                         "label2id": label2id, "id2label": id2label},
-                       "bert_ner_best.pt")
+                        "bert_ner_best.pt")
         print(f"Epoch {epoch}/{EPOCHS} complete  "
               f"train_loss={total_loss / num_batches:.4f}  "
-              f"val_loss={val_loss:.4f}"
+              f"val_loss={val_loss:.4f}  f1={val_f1:.4f}"
               f"  {'(best — saved)' if improved else '(no improvement)'}\n")
 
     print("Loading best checkpoint for inference ...")
