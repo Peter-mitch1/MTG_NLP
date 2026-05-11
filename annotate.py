@@ -200,6 +200,8 @@ def annotate_card_rules() -> list[list[tuple[str, CardType | None]]]:
 def print_to_csv(annotated_card_rules: list[list[tuple[str, CardType | None]]], target_file: str) -> None:
     with open(target_file, "w", newline="") as csv_file:
         csv_writer = csv.writer(csv_file, delimiter=";")
+        # write header
+        csv_writer.writerow(["token", "label"])
         for annotated_rule in annotated_card_rules:
             is_beginning = True
             for word, card_type in annotated_rule:
